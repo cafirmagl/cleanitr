@@ -612,6 +612,7 @@ footer{background:#0a1f22;color:rgba(255,255,255,.72);padding:60px 0 28px}
 @media(max-width:980px){.ql-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:440px){.ql-grid{grid-template-columns:1fr}}
 </style>
+<script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
 </head>
 <body>
 
@@ -1506,6 +1507,18 @@ function closeEmbed(){
   ov.classList.remove('open');
   document.getElementById('embedFrame').src='about:blank';
   document.body.style.overflow='';
+}
+</script>
+<script>
+// Netlify Identity: after accepting invite / logging in, send user to the CMS admin
+if (window.netlifyIdentity) {
+  window.netlifyIdentity.on("init", user => {
+    if (!user) {
+      window.netlifyIdentity.on("login", () => {
+        document.location.href = "/admin/";
+      });
+    }
+  });
 }
 </script>
 </body>
