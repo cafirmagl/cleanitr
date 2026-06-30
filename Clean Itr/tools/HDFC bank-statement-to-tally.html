@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bank Statement → Tally Voucher Excel</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.0/tesseract.min.js"></script>
+<style>
+  :root{
+    --ink:#1a1410; --paper:#f4ede0; --line:#c9b99e;
+    --debit:#9c3d2e; --credit:#2d5a3d; --gold:#b08940;
+    --shadow:rgba(40,28,12,.18);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:Georgia,"Times New Roman",serif;background:var(--paper);
+    background-image:radial-gradient(circle at 1px 1px, rgba(120,90,40,.06) 1px, transparent 0);
+    background-size:18px 18px;color:var(--ink);padding:40px 20px;min-height:100vh;
+  }
+  .wrap{max-width:1180px;margin:0 auto}
+  header{border-bottom:3px double var(--line);padding-bottom:18px;margin-bottom:28px}
+  .eyebrow{font-family:"Courier New",monospace;letter-spacing:.35em;text-transform:uppercase;font-size:11px;color:var(--gold);margin-bottom:6px}
+  h1{font-size:38px;font-weight:normal;letter-spacing:-.5px;line-height:1.05}
+  h1 em{font-style:italic;color:var(--credit)}
+  .panel{background:#fbf6ec;border:1px solid var(--line);padding:26px;box-shadow:8px 8px 0 var(--shadow);margin-bottom:30px}
+  .row{display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+  .file-label{border:2px dashed var(--line);padding:14px 22px;cursor:pointer;font-family:"Courier New",monospace;font-size:13px;flex:1;min-width:220px;transition:.2s;background:#fff}
+  .file-label:hover{border-color:var(--gold);background:#fffdf7}
+  .file-label span{color:var(--gold)}
+  input[type=file]{display:none}
+  button{font-family:Georgia,serif;font-size:15px;padding:14px 28px;cursor:pointer;border:none;color:#fbf6ec;background:var(--ink);transition:.2s;letter-spacing:.04em}
+  button:hover{background:var(--debit)}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  .secondary{background:var(--credit)} .secondary:hover{background:#234731}
+  .status{font-family:"Courier New",monospace;font-size:12px;margin-top:14px;color:#6b5d48;min-height:16px}
+  .stats{display:flex;gap:24px;margin-bottom:20px;flex-wrap:wrap}
+  .stat{border-left:4px solid var(--line);padding-left:12px}
+  .stat b{display:block;font-size:24px;line-height:1.1;font-family:"Courier New",monospace}
+  .stat small{font-family:"Courier New",monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:#6b5d48}
+  .stat.d b{color:var(--debit)} .stat.c b{color:var(--credit)}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;background:#fff}
+  th{background:var(--ink);color:#fbf6ec;text-align:left;padding:10px 11px;font-weight:normal;font-family:"Courier New",monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase}
+  td{padding:8px 11px;border-bottom:1px solid #eadfc9;vertical-align:top}
+  tr:hover td{background:#fdf9f0}
+  .num{text-align:right;font-family:"Courier New",monospace;white-space:nowrap}
+  .debit{color:var(--debit)} .credit{color:var(--credit)}
+  .vch{border-top:2px solid var(--gold)}
+  .empty{padding:40px;text-align:center;color:#a8997d;font-style:italic}
+  .hint{margin-top:10px;font-size:12px;color:#8a7c64;font-style:italic}
+  .opt{display:flex;gap:18px;margin-top:14px;font-size:13px;font-family:"Courier New",monospace;color:#6b5d48;flex-wrap:wrap;align-items:center}
+  .opt label{cursor:pointer}
+  .cfg{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-top:20px;padding-top:18px;border-top:1px dashed var(--line)}
+  .cfg .field{display:flex;flex-direction:column;gap:5px}
+  .cfg label{font-family:"Courier New",monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#6b5d48}
+  .cfg input[type=text]{font-family:Georgia,serif;font-size:14px;padding:10px 12px;border:1px solid var(--line);background:#fff;color:var(--ink)}
+  .cfg input[type=text]:focus{outline:none;border-color:var(--gold);background:#fffdf7}
+  .tabs{display:flex;gap:0;margin-bottom:-1px}
+  .tab{font-family:"Courier New",monospace;font-size:12px;letter-spacing:.08em;text-transform:uppercase;padding:10px 20px;cursor:pointer;border:1px solid var(--line);border-bottom:none;background:#efe6d4;color:#6b5d48}
+  .tab.active{background:#fff;color:var(--ink);font-weight:bold}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">PDF Statement &rarr; TallyPrime Voucher Import</div>
+    <h1>Bank Statement <em>to Tally</em> Converter</h1>
+  </header>
+
+  <div class="panel">
+    <div class="row">
+      <label class="file-label" for="pdfFile"><span>&#8853;</span>&nbsp; <span id="fileName">Choose a PDF statement&hellip;</span></label>
+      <input type="file" id="pdfFile" accept=".pdf">
+      <button id="convertBtn" onclick="processFile()">Convert</button>
+      <button class="secondary" id="exportBtn" onclick="exportExcel()" disabled>Export Tally Excel</button>
+    </div>
+
+    <div class="opt">
+      <label><input type="checkbox" id="useBalance" checked> Use running balance to decide Withdrawal vs Deposit</label>
+    </div>
+
+    <div class="cfg">
+      <div class="field">
+        <label for="bankLedger">Bank Ledger Name (as in Tally)</label>
+        <input type="text" id="bankLedger" value="Bank Account" placeholder="e.g. HDFC Bank A/c">
+      </div>
+      <div class="field">
+        <label for="suspenseLedger">Contra (Suspense) Ledger</label>
+        <input type="text" id="suspenseLedger" value="Suspense" placeholder="e.g. Suspense">
+      </div>
+      <div class="field">
+        <label for="vchPrefix">Voucher Number Prefix</label>
+        <input type="text" id="vchPrefix" value="" placeholder="e.g. BANK/ (optional)">
+      </div>
+      <div class="field">
+        <label for="vchStart">Voucher Start Number</label>
+        <input type="text" id="vchStart" value="1" placeholder="1">
+      </div>
+    </div>
+
+    <div class="status" id="status"></div>
+    <p class="hint">Deposits &rarr; <b>Receipt</b> (Bank Dr / Suspense Cr) &nbsp;&middot;&nbsp; Withdrawals &rarr; <b>Payment</b> (Suspense Dr / Bank Cr). Each transaction = 2 voucher lines.<br>Auto-detects <b>HDFC</b> layout. PDFs with no text layer (e.g. HDFC) are read via in-browser <b>OCR</b> &mdash; the first page takes a few extra seconds. Closing-balance check flags any uncertain rows.</p>
+  </div>
+
+  <div class="stats" id="stats" style="display:none">
+    <div class="stat"><b id="cTotal">0</b><small>Transactions</small></div>
+    <div class="stat"><b id="cVch">0</b><small>Voucher Lines</small></div>
+    <div class="stat d"><b id="cDr">0.00</b><small>Total Payments</small></div>
+    <div class="stat c"><b id="cCr">0.00</b><small>Total Receipts</small></div>
+    <div class="stat"><b id="cBal">&mdash;</b><small>Closing Balance</small></div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" id="tabTally" onclick="switchView('tally')">Tally Voucher View</div>
+    <div class="tab" id="tabRaw" onclick="switchView('raw')">Raw Statement View</div>
+  </div>
+
+  <table id="tallyTable">
+    <thead>
+      <tr>
+        <th>Voucher Date</th><th>Voucher Type</th><th>Voucher No.</th>
+        <th>Ledger Name</th><th class="num">Ledger Amount</th><th>Dr/Cr</th>
+        <th>Voucher Narration</th>
+      </tr>
+    </thead>
+    <tbody id="tbodyTally">
+      <tr><td colspan="7" class="empty">No data yet &mdash; upload a statement and hit Convert.</td></tr>
+    </tbody>
+  </table>
+
+  <table id="rawTable" style="display:none">
+    <thead>
+      <tr><th>Date</th><th>Particulars</th><th class="num">Withdrawal</th><th class="num">Deposit</th><th class="num">Balance</th></tr>
+    </thead>
+    <tbody id="tbodyRaw">
+      <tr><td colspan="5" class="empty">No data yet.</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+let parsedData = [];   // raw statement rows
+let tallyRows  = [];   // expanded double-entry voucher lines
+
+function setStatus(m){ document.getElementById("status").textContent = m; }
+const toNum = s => parseFloat(String(s).replace(/,/g,""));
+const fmt   = n => (n===""||n==null||isNaN(n)) ? "" :
+  Number(n).toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2});
+
+document.getElementById("pdfFile").addEventListener("change", e=>{
+  const f = e.target.files[0];
+  document.getElementById("fileName").textContent = f ? f.name : "Choose a PDF statement\u2026";
+});
+
+function switchView(v){
+  const tally = v==="tally";
+  document.getElementById("tallyTable").style.display = tally ? "" : "none";
+  document.getElementById("rawTable").style.display   = tally ? "none" : "";
+  document.getElementById("tabTally").classList.toggle("active", tally);
+  document.getElementById("tabRaw").classList.toggle("active", !tally);
+}
+
+// Opens a PDF, prompting for a password if it is encrypted (retries until correct or cancelled)
+async function loadPdf(buf){
+  let password = null;
+  while(true){
+    try{
+      const opts = {data: buf.slice(0)};
+      if(password !== null) opts.password = password;
+      return await pdfjsLib.getDocument(opts).promise;
+    }catch(err){
+      const isPwd = err && (err.name === "PasswordException" ||
+        /password/i.test(err.message || ""));
+      if(!isPwd) throw err;
+      const needed = (err.code === 1);
+      const prompt1 = needed
+        ? "This PDF is password protected. Enter password:"
+        : "Incorrect password. Try again:";
+      setStatus("\uD83D\uDD12 Waiting for password\u2026");
+      password = window.prompt(prompt1, "");
+      if(password === null) return null;
+    }
+  }
+}
+
+// Pull text lines from a page's text layer (returns [] if the page has no real text)
+async function linesFromTextLayer(page){
+  const content = await page.getTextContent();
+  if(!content.items.length) return [];
+  const rows = {};
+  content.items.forEach(it=>{
+    const y = Math.round(it.transform[5]);
+    const near = Object.keys(rows).find(k=>Math.abs(k-y)<=2);
+    const key = near !== undefined ? near : y;
+    (rows[key] = rows[key] || []).push({x:it.transform[4], s:it.str});
+  });
+  const out = [];
+  Object.keys(rows).sort((a,b)=>b-a).forEach(y=>{
+    const text = rows[y].sort((a,b)=>a.x-b.x).map(o=>o.s).join(" ").replace(/\s+/g," ").trim();
+    if(text) out.push(text);
+  });
+  return out;
+}
+
+// Render a page to a high-res canvas and OCR it (for PDFs whose text is drawn as vectors/images)
+let _ocrWorker = null;
+async function ocrPage(page, onProg){
+  if(!_ocrWorker){
+    setStatus("Loading OCR engine (first page only)\u2026");
+    _ocrWorker = await Tesseract.createWorker("eng");
+  }
+  const vp = page.getViewport({scale: 2.5});
+  const canvas = document.createElement("canvas");
+  canvas.width = vp.width; canvas.height = vp.height;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fff"; ctx.fillRect(0,0,canvas.width,canvas.height);
+  await page.render({canvasContext: ctx, viewport: vp}).promise;
+  const { data } = await _ocrWorker.recognize(canvas);
+  // Build lines from OCR word boxes grouped by their vertical midpoint
+  const words = (data.words||[]).map(w=>({
+    x:w.bbox.x0, y:(w.bbox.y0+w.bbox.y1)/2, t:w.text
+  }));
+  const rows = {};
+  words.forEach(w=>{
+    const near = Object.keys(rows).find(k=>Math.abs(k-w.y)<=10);
+    const key = near!==undefined ? near : w.y;
+    (rows[key]=rows[key]||[]).push(w);
+  });
+  const out = [];
+  Object.keys(rows).sort((a,b)=>a-b).forEach(y=>{
+    const text = rows[y].sort((a,b)=>a.x-b.x).map(o=>o.t).join(" ").replace(/\s+/g," ").trim();
+    if(text) out.push(text);
+  });
+  return out;
+}
+
+async function processFile(){
+  const file = document.getElementById("pdfFile").files[0];
+  if(!file){ setStatus("\u26a0 Please select a PDF first."); return; }
+  const btn = document.getElementById("convertBtn");
+  btn.disabled = true; setStatus("Reading PDF\u2026");
+  try{
+    const buf = await file.arrayBuffer();
+    const pdf = await loadPdf(buf);
+    if(!pdf){ setStatus("\u2717 Cancelled \u2014 password required to open this PDF."); btn.disabled=false; return; }
+
+    let lines = [];
+    let usedOcr = false;
+    for(let p=1; p<=pdf.numPages; p++){
+      const page = await pdf.getPage(p);
+      setStatus("Reading page " + p + " of " + pdf.numPages + "\u2026");
+      let pageLines = await linesFromTextLayer(page);
+      if(pageLines.length === 0){
+        // No text layer (e.g. HDFC vector-drawn statements) \u2192 OCR this page
+        usedOcr = true;
+        setStatus("Page " + p + "/" + pdf.numPages + ": no text layer, running OCR\u2026");
+        pageLines = await ocrPage(page);
+      }
+      lines = lines.concat(pageLines);
+    }
+    if(_ocrWorker){ try{ await _ocrWorker.terminate(); }catch(e){} _ocrWorker=null; }
+
+    const bank = detectBank(lines);
+    const useBal = document.getElementById("useBalance").checked;
+    if(bank === "HDFC"){
+      setStatus((usedOcr?"OCR \u2192 ":"") + "Detected HDFC layout \u2014 parsing\u2026");
+      parsedData = extractHDFC(lines);
+    }else{
+      parsedData = extractTransactions(lines, useBal);
+    }
+    parsedData = reconcileBalances(parsedData);
+
+    tallyRows = buildTallyRows(parsedData);
+    renderRaw(parsedData);
+    renderTally(tallyRows);
+
+    if(parsedData.length){
+      const flagged = parsedData.filter(r=>r.flag).length;
+      let msg = "\u2713 " + (bank?bank+" ":"") + (usedOcr?"(OCR) ":"") +
+        "\u2014 " + parsedData.length + " transaction(s) \u2192 " + tallyRows.length + " voucher line(s).";
+      if(flagged) msg += "  \u26a0 " + flagged + " row(s) flagged \u2014 check highlighted rows.";
+      setStatus(msg);
+      document.getElementById("exportBtn").disabled = false;
+    }else{
+      setStatus("No transactions detected \u2014 the layout may differ.");
+      document.getElementById("exportBtn").disabled = true;
+    }
+  }catch(err){
+    console.error(err); setStatus("\u2717 Error: " + err.message);
+  }finally{ btn.disabled = false; }
+}
+
+// Identify the bank from header text so we can pick a tailored parser
+function detectBank(lines){
+  const head = lines.slice(0, 40).join(" ").toUpperCase();
+  if(/HDFC BANK/.test(head) || (/WITHDRAWAL AMT/.test(head) && /CLOSING BALANCE/.test(head)))
+    return "HDFC";
+  return null;
+}
+
+const DATE_RE = /^(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}|\d{1,2}[\/\-\s][A-Za-z]{3,9}[\/\-\s]\d{2,4})\b/;
+const MONEY_G = /[\d,]+\.\d{2}|\b\d{1,3}(?:,\d{2,3})+\b|\b\d+\b/g;
+
+function extractTransactions(lines, useBalance){
+  const out = [];
+  let prevBal = null;
+  let pending = null;
+  const pushPending = ()=>{ if(pending){ out.push(pending); pending=null; } };
+
+  lines.forEach(line=>{
+    const dm = line.match(DATE_RE);
+    if(!dm){
+      if(pending && !/^[\d,.\s]+$/.test(line)) pending.particulars += " " + line;
+      return;
+    }
+    pushPending();
+    const date = dm[0];
+    let rest = line.slice(dm[0].length).trim();
+    const tokens = rest.match(MONEY_G) || [];
+    const nums = tokens.map(toNum);
+    let particulars = rest.replace(MONEY_G,"").replace(/\s+/g," ").trim() || "(no description)";
+    let withdrawal="", deposit="", balance="";
+
+    if(nums.length === 0){
+      // date-only / note line
+    } else if(nums.length === 1){
+      withdrawal = nums[0];
+    } else {
+      balance = nums[nums.length-1];
+      const amt = nums[nums.length-2];
+      if(useBalance && prevBal !== null && !isNaN(balance)){
+        if(balance < prevBal) withdrawal = amt;
+        else if(balance > prevBal) deposit = amt;
+        else withdrawal = amt;
+      } else {
+        if(/\b(cr|credit|deposit|by )\b/i.test(rest)) deposit = amt;
+        else withdrawal = amt;
+      }
+    }
+    if(balance!=="" && !isNaN(balance)) prevBal = balance;
+    pending = {date, particulars, withdrawal, deposit, balance};
+  });
+  pushPending();
+  return out;
+}
+
+// ---- HDFC-specific parser --------------------------------------------------
+// HDFC columns: Date | Narration | Chq./Ref.No. | Value Dt | Withdrawal Amt. |
+//               Deposit Amt. | Closing Balance
+// A new transaction starts with a dd/mm/yy date; continuation lines (extra
+// narration / ref digits) have no leading date and are appended to the row.
+const HDFC_DATE = /^(\d{2}\/\d{2}\/\d{2})\b/;
+const HDFC_MONEY = /\d{1,3}(?:,\d{2,3})*\.\d{2}/g;   // amounts always have 2 decimals
+
+function extractHDFC(lines){
+  const out = [];
+  let cur = null;
+  const skip = /HDFC BANK|Statement of account|Page No|Account Branch|Closing balance includes|Contents of this statement|State account branch|Registered Office|Nomination|JOINT HOLDERS|RTGS\/NEFT|Branch Code|Account Type|STATEMENT SUMMARY|Opening Balance|Date Narration|Withdrawal Amt|Generated On/i;
+
+  lines.forEach(raw=>{
+    const line = raw.replace(/\s+/g," ").trim();
+    if(!line) return;
+    const dm = line.match(HDFC_DATE);
+
+    if(!dm){
+      // continuation of the current transaction's narration (ignore boilerplate)
+      if(cur && !skip.test(line)){
+        // pure ref-number / value-date fragments aren't useful narration
+        if(!/^[\d\/\.,\s]+$/.test(line)) cur.particulars += " " + line;
+      }
+      return;
+    }
+    if(skip.test(line)) return;
+
+    // close previous
+    if(cur) out.push(cur);
+
+    const date = dm[1];
+    let rest = line.slice(dm[0].length).trim();
+
+    // collect all 2-decimal money tokens; in HDFC the LAST is Closing Balance,
+    // and the one before (if present) is the Withdrawal or Deposit amount.
+    const money = rest.match(HDFC_MONEY) || [];
+    let balance = "", amount = "";
+    if(money.length >= 1) balance = toNum(money[money.length-1]);
+    if(money.length >= 2) amount  = toNum(money[money.length-2]);
+
+    // narration = text with money + long ref/value-date numbers stripped
+    let particulars = rest
+      .replace(HDFC_MONEY, " ")
+      .replace(/\b\d{10,}\b/g," ")          // ref numbers
+      .replace(/\b\d{2}\/\d{2}\/\d{2}\b/g," ") // value date
+      .replace(/\s+/g," ").trim() || "(no description)";
+
+    cur = {date, particulars, withdrawal:"", deposit:"", balance,
+           _amt:amount};   // direction decided in reconcile step
+  });
+  if(cur) out.push(cur);
+  return out;
+}
+
+// ---- Balance reconciliation -----------------------------------------------
+// Uses the running Closing Balance to decide Withdrawal vs Deposit and to
+// auto-correct/flag misread amounts. Works for any parser that fills .balance.
+function reconcileBalances(rows){
+  let prev = null;
+  rows.forEach((r,i)=>{
+    const bal = (r.balance!=="" && !isNaN(r.balance)) ? Number(r.balance) : null;
+    const amt = (r._amt!=="" && r._amt!=null && !isNaN(r._amt)) ? Number(r._amt) : null;
+    r.flag = "";
+
+    const delta = (prev!==null && bal!==null) ? Math.round((bal-prev)*100)/100 : null;
+
+    if(amt !== null){
+      // We have a parsed amount: trust its MAGNITUDE; use balance only for direction.
+      if(delta !== null){
+        if(Math.abs(Math.abs(delta) - amt) <= 0.01){
+          // amount agrees with balance movement \u2014 confident
+          if(delta >= 0){ r.deposit = amt; } else { r.withdrawal = amt; }
+        }else{
+          // disagreement: could be a parser miss on a prior row OR an OCR error.
+          // Keep the parsed amount but assign direction by balance sign, and flag.
+          if(delta > 0){ r.deposit = amt; } else if(delta < 0){ r.withdrawal = amt; }
+          else { r.withdrawal = amt; }
+          r.flag = "amount/balance mismatch \u2014 verify";
+        }
+      }else{
+        // no usable previous balance (first row): guess direction by keywords
+        if(/\b(CR|CREDIT|DEPOSIT|INT\b|DIV\b|REFUND|NEFT CR|RTGS CR|IMPS|REDEEM|REDEMPTION)\b/i.test(r.particulars))
+          r.deposit = amt; else r.withdrawal = amt;
+        r.flag = "opening row \u2014 verify direction";
+      }
+    }else if(delta !== null){
+      // No amount parsed at all \u2014 reconstruct it purely from the balance delta.
+      const mag = Math.abs(delta);
+      if(delta > 0) r.deposit = mag; else if(delta < 0) r.withdrawal = mag;
+      if(mag>0) r.flag = "amount reconstructed from balance";
+    }
+
+    delete r._amt;
+    if(bal !== null) prev = bal;
+  });
+  return rows;
+}
+
+// Convert flat statement rows into TallyPrime double-entry voucher lines.
+// Deposit  -> Receipt : Bank Dr , Suspense Cr
+// Withdrawal -> Payment : Suspense Dr , Bank Cr
+function buildTallyRows(data){
+  const bank = (document.getElementById("bankLedger").value || "Bank Account").trim();
+  const susp = (document.getElementById("suspenseLedger").value || "Suspense").trim();
+  const prefix = document.getElementById("vchPrefix").value || "";
+  let n = parseInt(document.getElementById("vchStart").value, 10);
+  if(isNaN(n)) n = 1;
+
+  const rows = [];
+  data.forEach(r=>{
+    const dep = (r.deposit!=="" && !isNaN(r.deposit)) ? Number(r.deposit) : 0;
+    const wdr = (r.withdrawal!=="" && !isNaN(r.withdrawal)) ? Number(r.withdrawal) : 0;
+    if(dep===0 && wdr===0) return;   // skip note/date-only lines
+
+    const vno = prefix + n;
+    const narr = r.particulars || "";
+
+    if(dep > 0){
+      // Receipt
+      rows.push({ first:true, date:r.date, vtype:"Receipt", vno,
+        ledger:bank, amount:dep, drcr:"Dr", narr });
+      rows.push({ first:false, date:r.date, vtype:"Receipt", vno,
+        ledger:susp, amount:dep, drcr:"Cr", narr });
+    } else {
+      // Payment
+      rows.push({ first:true, date:r.date, vtype:"Payment", vno,
+        ledger:susp, amount:wdr, drcr:"Dr", narr });
+      rows.push({ first:false, date:r.date, vtype:"Payment", vno,
+        ledger:bank, amount:wdr, drcr:"Cr", narr });
+    }
+    n++;
+  });
+  return rows;
+}
+
+function renderRaw(data){
+  const tb = document.getElementById("tbodyRaw");
+  tb.innerHTML = "";
+  if(!data.length){ tb.innerHTML='<tr><td colspan="5" class="empty">No transactions detected.</td></tr>'; return; }
+  data.forEach(r=>{
+    const tr = tb.insertRow();
+    if(r.flag) tr.style.background = "#fcefe6";
+    tr.insertCell().textContent = r.date;
+    const pc = tr.insertCell();
+    pc.textContent = r.particulars;
+    if(r.flag){ const s=document.createElement("small");
+      s.style.cssText="display:block;color:#9c3d2e;font-style:italic";
+      s.textContent="\u26a0 "+r.flag; pc.appendChild(s); }
+    const w=tr.insertCell(); w.className="num debit";  w.textContent=fmt(r.withdrawal);
+    const d=tr.insertCell(); d.className="num credit"; d.textContent=fmt(r.deposit);
+    const b=tr.insertCell(); b.className="num";        b.textContent=fmt(r.balance);
+  });
+}
+
+function renderTally(rows){
+  const tb = document.getElementById("tbodyTally");
+  tb.innerHTML = "";
+  if(!rows.length){
+    tb.innerHTML='<tr><td colspan="7" class="empty">No voucher lines generated.</td></tr>';
+    document.getElementById("stats").style.display="none"; return;
+  }
+  let totDr=0, totCr=0, vch=0;
+  rows.forEach(r=>{
+    const tr = tb.insertRow();
+    if(r.first) tr.classList.add("vch");
+    tr.insertCell().textContent = r.first ? r.date : "";
+    tr.insertCell().textContent = r.first ? r.vtype : "";
+    tr.insertCell().textContent = r.first ? r.vno : "";
+    tr.insertCell().textContent = r.ledger;
+    const a=tr.insertCell(); a.className="num "+(r.drcr==="Dr"?"debit":"credit"); a.textContent=fmt(r.amount);
+    tr.insertCell().textContent = r.drcr;
+    tr.insertCell().textContent = r.first ? r.narr : "";
+  });
+  // stats
+  parsedData.forEach(r=>{
+    if(r.withdrawal!=="" && !isNaN(r.withdrawal)) totDr+=Number(r.withdrawal);
+    if(r.deposit!==""    && !isNaN(r.deposit))    totCr+=Number(r.deposit);
+  });
+  vch = new Set(rows.map(r=>r.vno)).size;
+  let lastBal=""; parsedData.forEach(r=>{ if(r.balance!=="") lastBal=r.balance; });
+  document.getElementById("cTotal").textContent = vch;
+  document.getElementById("cVch").textContent   = rows.length;
+  document.getElementById("cDr").textContent    = fmt(totDr);
+  document.getElementById("cCr").textContent    = fmt(totCr);
+  document.getElementById("cBal").textContent   = lastBal===""? "\u2014" : fmt(lastBal);
+  document.getElementById("stats").style.display="flex";
+}
+
+// Export in exact TallyPrime "Accounting Voucher" import column order
+function exportExcel(){
+  if(!tallyRows.length){ buildTallyRows(parsedData); }
+  if(!tallyRows.length) return;
+
+  const HEADERS = ["Voucher Date","Voucher Type Name","Voucher Number",
+    "Voucher Narration","Buyer/Supplier - Address","Buyer/Supplier - Pincode",
+    "Ledger Name","Ledger Amount","Ledger Amount Dr/Cr","Item Name","Billed Quantity",
+    "Item Rate","Item Rate per","Item Amount","Change Mode "];
+
+  const aoa = [HEADERS];
+  tallyRows.forEach(r=>{
+    aoa.push([
+      r.first ? r.date  : "",   // Voucher Date  (only on first line of voucher)
+      r.first ? r.vtype : "",   // Voucher Type Name
+      r.first ? r.vno   : "",   // Voucher Number
+      r.first ? r.narr  : "",   // Voucher Narration  (Tally's proper narration field)
+      "",                       // Buyer/Supplier - Address
+      "",                       // Pincode
+      r.ledger,                 // Ledger Name
+      Number(r.amount),         // Ledger Amount
+      r.drcr,                   // Ledger Amount Dr/Cr
+      "", "", "", "", "", ""    // Item + Change Mode (not used for plain bank vouchers)
+    ]);
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = [{wch:13},{wch:17},{wch:14},{wch:40},{wch:24},{wch:10},{wch:24},
+    {wch:14},{wch:8},{wch:14},{wch:13},{wch:10},{wch:12},{wch:12},{wch:11}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Accounting Voucher");
+  XLSX.writeFile(wb, "tally_accounting_vouchers.xlsx");
+  setStatus("\u2713 Exported tally_accounting_vouchers.xlsx (" + tallyRows.length + " lines).");
+}
+</script>
+</body>
+</html>
